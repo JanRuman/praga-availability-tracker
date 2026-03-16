@@ -73,9 +73,66 @@ def run() -> Path:
 
     snapshot_path.write_text(json.dumps(snapshot, ensure_ascii=False, indent=2), encoding="utf-8")
 
-    latest_path = DATA_DIR / "latest.json"
     _safe_mkdir(DATA_DIR)
-    latest_path.write_text(json.dumps(snapshot, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    # Build an aggregated \"all history\" view across all snapshots so that
+    # latest.json always contains the union of known days per apartment,
+    # with the most recent snapshot winning if the same date appears multiple times.
+    all_snapshot_paths = sorted(
+        (p for p in SNAPSHOT_DIR.glob(\"*.json\") if re.match(r\"^\\d{4}-\\d{2}-\\d{2}\\.json$\", p.name)),
+        key=lambda p: p.stem,
+    )
+
+    apartments_by_id: dict[str, dict] = {}
+    for spath in all_snapshot_paths:
+        data = json.loads(spath.read_text(encoding=\"utf-8\"))
+        for apt in data.get(\"apartments\", []):
+            apt_id = str(apt.get(\"id\"))
+            entry = apartments_by_id.setdefault(
+                apt_id,
+                {
+                    \"id\": apt_id,
+                    \"name\": apt.get(\"name\", f\"Apartment {apt_id}\"),
+                    \"url\": apt.get(\"url\"),
+                    \"days\": {},
+                },
+            )
+            # Always keep the latest name/url we see.
+            if apt.get(\"name\"):
+                entry[\"name\"] = apt[\"name\"]
+            if apt.get(\"url\"):
+                entry[\"url\"] = apt[\"url\"]
+
+            for day in apt.get(\"days\", []):
+                dkey = day.get(\"date\")
+                if not dkey:
+                    continue
+                # Later snapshots overwrite earlier ones for the same date.
+                entry[\"days\"][dkey] = {
+                    \"date\": dkey,
+                    \"status\": day.get(\"status\", \"unavailable\"),
+                    \"price_eur\": day.get(\"price_eur\"),  # may be None
+                }
+
+    aggregated = {
+        \"run_date\": run_date,
+        \"source\": \"https://praga.at/apartmany/\",
+        \"apartments\": [],
+    }
+    for apt_id in sorted(apartments_by_id.keys(), key=lambda x: (int(x) if x.isdigit() else 10**9, x)):
+        entry = apartments_by_id[apt_id]
+        days_list = [entry[\"days\"][k] for k in sorted(entry[\"days\"].keys())]
+        aggregated[\"apartments\"].append(
+            {
+                \"id\": entry[\"id\"],
+                \"name\": entry[\"name\"],
+                \"url\": entry[\"url\"],
+                \"days\": days_list,
+            }
+        )
+
+    latest_path = DATA_DIR / \"latest.json\"
+    latest_path.write_text(json.dumps(aggregated, ensure_ascii=False, indent=2), encoding=\"utf-8\"))
 
     # Update snapshot index for the static viewer.
     snapshots = sorted(
