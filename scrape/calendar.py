@@ -3,7 +3,6 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from datetime import date
-from typing import Iterable
 
 from bs4 import BeautifulSoup
 
@@ -64,17 +63,90 @@ def _iter_tokens_for_month_block(text: str, month_name_cap: str, year: int, next
     return text[start:]
 
 
+def _parse_from_mb_day_divs(soup: BeautifulSoup) -> list[DayAvailability]:
+    """
+    Preferred parsing path: use the explicit calendar day divs that
+    encode availability status via CSS classes and `data-date`.
+
+    Example structure (simplified):
+      <div class="mb-day selectable fsp" data-date="06.04.2026" data-number="6">
+        <span>6</span>
+        <span>82 EUR</span>
+      </div>
+
+      <div class="mb-day nonselectable unavailable" data-date="04.04.2026" data-number="30">
+        <span>4</span>
+        <span>82 EUR</span>
+      </div>
+    """
+    results: list[DayAvailability] = []
+
+    for div in soup.select("div.mb-day"):
+        cls = set(div.get("class", []))
+        data_date = div.get("data-date")
+        if not data_date:
+            continue
+
+        # data-date is in format DD.MM.YYYY
+        m = re.match(r"^(\d{2})\.(\d{2})\.(\d{4})$", data_date.strip())
+        if not m:
+            continue
+        day_i, month_i, year_i = map(int, m.groups())
+        try:
+            d = date(year_i, month_i, day_i)
+        except ValueError:
+            continue
+
+        spans = div.find_all("span")
+        price_eur: int | None = None
+        for sp in spans:
+            txt = _normalize_space(sp.get_text(" ", strip=True))
+            m_price = re.search(r"(\d+)\s*EUR", txt)
+            if m_price:
+                price_eur = int(m_price.group(1))
+                break
+
+        if {"nonselectable", "unavailable"} & cls:
+            status = "unavailable"
+        elif "selectable" in cls:
+            status = "available"
+        else:
+            # Fallback: if we have a price, assume available, else unavailable.
+            status = "available" if price_eur is not None else "unavailable"
+
+        results.append(
+            DayAvailability(
+                date=d.isoformat(),
+                status=status,
+                price_eur=price_eur,
+            )
+        )
+
+    return results
+
+
 def parse_calendar_days(html: str) -> list[DayAvailability]:
     """
     Parses the calendar into per-day availability.
 
-    Primary heuristic:
-    - if a day cell shows a price like '82 EUR' then status=available
-    - if it shows only a day number (no EUR) then status=unavailable
+    Preferred source of truth:
+    - `div.mb-day` elements with `data-date` and availability classes.
 
-    This is implemented using the page's extracted text as a stable fallback.
+    Fallback (if structure changes):
+    - Heuristic based on presence/absence of a price in the text.
     """
     soup = BeautifulSoup(html, "html.parser")
+
+    # 1) Try the explicit `mb-day` elements first.
+    mb_day_results = _parse_from_mb_day_divs(soup)
+    if mb_day_results:
+        # Deduplicate by date just in case.
+        by_date: dict[str, DayAvailability] = {}
+        for r in mb_day_results:
+            by_date[r.date] = r
+        return [by_date[k] for k in sorted(by_date.keys())]
+
+    # 2) Fallback to text-based heuristic (older behaviour).
     full_text = _normalize_space(soup.get_text(" ", strip=True))
 
     month_headers = _find_month_headers(full_text)
