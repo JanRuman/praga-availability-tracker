@@ -115,6 +115,13 @@
       td {
         height: 54px;
       }
+      td.free {
+        outline: 1px solid rgba(31, 157, 85, 0.6);
+      }
+      td.booked {
+        outline: 1px solid rgba(214, 69, 69, 0.6);
+        background: rgba(214, 69, 69, 0.08);
+      }
       .cell {
         display: grid;
         gap: 4px;
@@ -129,14 +136,14 @@
         color: var(--muted);
       }
       .badge.ok {
-        color: #b8f5c4;
-        border-color: rgba(31, 157, 85, 0.6);
-        background: rgba(31, 157, 85, 0.15);
+        color: #ffffff;
+        border-color: rgba(31, 157, 85, 0.9);
+        background: rgba(31, 157, 85, 0.85);
       }
       .badge.bad {
-        color: #ffc3c3;
-        border-color: rgba(214, 69, 69, 0.6);
-        background: rgba(214, 69, 69, 0.15);
+        color: #ffffff;
+        border-color: rgba(214, 69, 69, 0.9);
+        background: rgba(214, 69, 69, 0.9);
       }
       .price {
         font-size: 11px;

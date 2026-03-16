@@ -72,7 +72,7 @@ function buildMonthGrid(y, m, dayMap, rangeFrom, rangeTo) {
     if (entry.status === "available") ok++;
     else bad++;
   }
-  meta.textContent = `${ok} available, ${bad} unavailable`;
+  meta.textContent = `${ok} free, ${bad} booked`;
 
   header.appendChild(title);
   header.appendChild(meta);
@@ -99,7 +99,7 @@ function buildMonthGrid(y, m, dayMap, rangeFrom, rangeTo) {
 
   let day = 1;
   for (let r = 0; r < rows; r++) {
-    const tr = document.createElement("tr");
+      const tr = document.createElement("tr");
     for (let c = 0; c < 7; c++) {
       const td = document.createElement("td");
       const idx = r * 7 + c;
@@ -112,11 +112,18 @@ function buildMonthGrid(y, m, dayMap, rangeFrom, rangeTo) {
         const entry = dayMap.get(iso);
         let badge = `<span class="badge">no data</span>`;
         let price = "";
+        let tdClass = "";
         if (entry && inRange) {
-          if (entry.status === "available") badge = `<span class="badge ok">available</span>`;
-          else badge = `<span class="badge bad">unavailable</span>`;
+          if (entry.status === "available") {
+            badge = `<span class="badge ok">free</span>`;
+            tdClass = "free";
+          } else {
+            badge = `<span class="badge bad">booked</span>`;
+            tdClass = "booked";
+          }
           if (entry.price_eur != null) price = `<div class="price">${entry.price_eur} EUR</div>`;
         }
+        if (tdClass) td.classList.add(tdClass);
         td.innerHTML = `<div class="cell"><div>${day}</div>${badge}${price}</div>`;
         day++;
       }
