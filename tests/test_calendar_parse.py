@@ -55,3 +55,28 @@ def test_parse_calendar_days_startdate_treated_as_booked():
     assert by_date["2026-05-23"].status == "unavailable"
     assert by_date["2026-05-23"].price_eur == 100
 
+
+def test_parse_calendar_days_arrival_heuristic_selectable_before_booked_block():
+    html = """
+    <html>
+      <body>
+        <!-- Arrival day: visually half-booked, but assume HTML lacks `startdate` -->
+        <div class="mb-day selectable fsp" data-date="25.03.2026" data-number="25">
+          <span>25</span><span>76</span><span>EUR</span>
+        </div>
+        <!-- Booked block continues -->
+        <div class="mb-day nonselectable unavailable selecteddays" data-date="26.03.2026" data-number="26">
+          <span>26</span><span>100 EUR</span>
+        </div>
+        <div class="mb-day nonselectable unavailable selecteddays" data-date="27.03.2026" data-number="27">
+          <span>27</span><span>100 EUR</span>
+        </div>
+      </body>
+    </html>
+    """
+    days = parse_calendar_days(html)
+    by_date = {d.date: d for d in days}
+
+    assert by_date["2026-03-25"].status == "unavailable"
+    assert by_date["2026-03-25"].price_eur == 76
+
