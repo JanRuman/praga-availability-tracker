@@ -79,7 +79,8 @@ def _parse_from_mb_day_divs(soup: BeautifulSoup) -> list[DayAvailability]:
         <span>82 EUR</span>
       </div>
     """
-    results: list[DayAvailability] = []
+    # First pass: parse per-day fields from divs.
+    parsed: list[tuple[date, set[str], int | None, str]] = []
 
     for div in soup.select("div.mb-day"):
         cls = set(div.get("class", []))
@@ -97,14 +98,12 @@ def _parse_from_mb_day_divs(soup: BeautifulSoup) -> list[DayAvailability]:
         except ValueError:
             continue
 
-        spans = div.find_all("span")
+        # Price can be split across spans (e.g. "76" and "EUR"). Search across the whole cell.
         price_eur: int | None = None
-        for sp in spans:
-            txt = _normalize_space(sp.get_text(" ", strip=True))
-            m_price = re.search(r"(\d+)\s*EUR", txt)
-            if m_price:
-                price_eur = int(m_price.group(1))
-                break
+        cell_text = _normalize_space(div.get_text(" ", strip=True))
+        m_price = re.search(r"(\d+)\s*EUR", cell_text)
+        if m_price:
+            price_eur = int(m_price.group(1))
 
         # Some days are visually "half booked" (arrival day) and still look selectable in the UI,
         # but they should be treated as booked/unavailable. These appear with class `startdate`.
@@ -116,14 +115,38 @@ def _parse_from_mb_day_divs(soup: BeautifulSoup) -> list[DayAvailability]:
             # Fallback: if we have a price, assume available, else unavailable.
             status = "available" if price_eur is not None else "unavailable"
 
-        results.append(
-            DayAvailability(
-                date=d.isoformat(),
-                status=status,
-                price_eur=price_eur,
-            )
-        )
+        parsed.append((d, cls, price_eur, status))
 
+    if not parsed:
+        return []
+
+    # Second pass: infer "arrival day" when the UI marker isn't present in HTML.
+    # Heuristic: if a day is selectable/available and the next day is unavailable WITH a price,
+    # treat current day as unavailable too (start of a booked block).
+    parsed.sort(key=lambda x: x[0])
+    by_date: dict[date, tuple[set[str], int | None, str]] = {d: (cls, price, status) for d, cls, price, status in parsed}
+
+    dates_sorted = sorted(by_date.keys())
+    for i, d in enumerate(dates_sorted[:-1]):
+        cls, price, status = by_date[d]
+        next_d = dates_sorted[i + 1]
+        next_cls, next_price, next_status = by_date[next_d]
+
+        if status != "available":
+            continue
+        if "selectable" not in cls:
+            continue
+        if next_status != "unavailable":
+            continue
+        if next_price is None:
+            continue
+        # Reclassify as booked (unavailable).
+        by_date[d] = (cls, price, "unavailable")
+
+    results: list[DayAvailability] = []
+    for d in dates_sorted:
+        cls, price, status = by_date[d]
+        results.append(DayAvailability(date=d.isoformat(), status=status, price_eur=price))
     return results
 
 
