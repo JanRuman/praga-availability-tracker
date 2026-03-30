@@ -306,13 +306,35 @@ function exportExcel() {
     let bookedDays = 0;
     let sumEur = 0;
 
+    // Collect booked days in range
+    const booked = [];
     for (const day of apt.days || []) {
       if (rangeFrom && compareIso(day.date, rangeFrom) < 0) continue;
       if (rangeTo && compareIso(day.date, rangeTo) > 0) continue;
-      if (day.status === "unavailable") {
-        bookedDays++;
-        if (day.price_eur != null) sumEur += day.price_eur;
+      if (day.status === "unavailable") booked.push(day);
+    }
+
+    // Build a price lookup from all days (including out-of-range) to fill gaps
+    const priceMap = new Map();
+    for (const day of apt.days || []) {
+      if (day.price_eur != null) priceMap.set(day.date, day.price_eur);
+    }
+
+    bookedDays = booked.length;
+    for (const day of booked) {
+      let price = day.price_eur;
+      if (price == null) {
+        // Find nearest day with a price
+        const sorted = [...priceMap.keys()].sort();
+        let best = null;
+        let bestDist = Infinity;
+        for (const d of sorted) {
+          const dist = Math.abs(isoToDate(d) - isoToDate(day.date));
+          if (dist < bestDist) { bestDist = dist; best = d; }
+        }
+        if (best != null) price = priceMap.get(best);
       }
+      if (price != null) sumEur += price;
     }
 
     rows.push({
